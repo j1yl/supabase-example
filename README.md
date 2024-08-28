@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### VIEW OWN RECORD
+```
+create policy "User can see their own profile only."
+on public.users
+for select using ( (select auth.uid()) = id );
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### USERS TABLE
+```
+create table public.users (
+  id uuid not null references auth.users on delete cascade,
+  full_name text,
+  user_name text,
+  avatar_url text,
+  email text,
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+  primary key (id)
+);
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+alter table public.users enable row level security;
+```
 
-## Learn More
+### FUNCTION FOR NEW USER LINK TO PUBLIC.USER
+```
+create function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = ''
+as $$
+begin
+  insert into public.users (id, full_name, user_name, avatar_url, email)
+  values (
+    new.id, 
+    new.raw_user_meta_data ->> 'full_name', 
+    new.raw_user_meta_data ->> 'user_name', 
+    new.raw_user_meta_data ->> 'avatar_url', 
+    new.raw_user_meta_data ->> 'email'
+  );
+  return new;
+end;
+$$;
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+```
